@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ## Executive Summary
-A random forest model is used to predict whether a subject is executing a weight lifting exercise correctly. If not, the specific error is predicted. The predicted out of sample accuracy for the best model is less than 99.18%.
+A random forest model is used to predict whether a subject is executing a weight lifting exercise correctly. If not, the specific error is predicted. The predicted out of sample accuracy for the best model is 99%.
 
 ## Load Data
 
