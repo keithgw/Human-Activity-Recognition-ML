@@ -1,0 +1,172 @@
+---
+title: "Human Activity Recognition ML Project - Raw Analysis"
+author: "Keith G. Williams"
+date: "Wednesday, April 15, 2015"
+output: html_document
+---
+## Summary
+
+A random forest model is used to predict whether subjects execute a weight lifting exercise correctly. If incorrect, the specific error type is predicted.
+
+## Load Data
+
+The data come from  
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises.](http://groupware.les.inf.puc-rio.br/har) Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.  
+These data were collected with body movement sensors while subjects were asked to do weight lifting exercises correctly (Class A) and with 4 common mistakes (Class B - E).  
+
+```{r}
+library(caret)
+library(ggplot2)
+library(dplyr)
+
+file_train <- "../Data/pml-training.csv"
+data_wel <- read.csv(file_train, 
+                     stringsAsFactors = FALSE,
+                     na.strings = c("", "NA", "#DIV/0!"))
+
+# convert classe to factor
+data_wel$classe <- factor(data_wel$classe)
+
+summary(data_wel[1:10])
+```
+
+First seven columns are identification and irrelevant time stamp data. Columns 8:158 represent movement measurements, and the 159th variable is the prediction: `classe`.
+
+```{r}
+# remove irrelevant columns
+data_wel <- data_wel[-1:-7]
+```
+
+## Data Partitioning
+```{r}
+set.seed(1201) # set seed for reproducibility
+inTrain <- createDataPartition(data_wel$classe, p=0.6, list=FALSE)
+training <- data_wel[inTrain,]
+testing <- data_wel[-inTrain,]
+```
+
+## Exploratory Data Analysis
+```{r}
+summary(training[1:12])
+```  
+
+It appears that many of the columns have mostly missing data.
+```{r}
+proportion_na <- sapply(seq_along(training), 
+                        function(i) mean(is.na(training[i])))
+proportion_na
+```  
+
+In fact, it appears the data is rather binary: either none of the data is missing or 98% of the data is missing.
+```{r}
+mean(proportion_na > 0.97)
+```  
+
+These features will likely not be useful for prediction, so they will be removed from the training and testing sets.  
+```{r}
+training <- training[proportion_na < 0.97]
+testing <- testing[proportion_na < 0.97]
+```
+
+Check for near zero variance:
+```{r, cache=TRUE}
+nearZeroVar(training)
+```
+
+There are no features with near zero variance, so the first model will be fitted.
+
+The first attempt will be a random forest model with 500 trees, using bootstrap resampling on all 52 predictors.
+```{r, cache=TRUE}
+fit <- randomForest(x=select(training, -classe), y=training$classe)
+```
+
+Analysis of in-sample fit:
+```{r}
+fit$finalModel
+plot(fit$finalModel)
+```
+With an out-of-sample estimated error rate of 0.86%, suggesting a 99.14% out-of-sample accuracy rate. This model looks very accurate. In fact, the accuracy is so high, that overfitting might be a concern. One draw back of this model is the time it took to run. Additionally, from the plot, it appears that no advantage was gained by using more than about 100 trees.
+
+Try with PCA pre-processing.
+```{r}
+training_pc <- preProcess(select(training, -classe), method="pca")
+training_pc
+# fit_pca <- train(classe ~ ., data = training, method = "rf", preProccess = "pca")
+```  
+Only 26 principal components are required to capture 95% of the variance. This is about half the number of original predictors(52).  Let's run slimmed model with 100 trees, and using the 26 PCs identified above.
+```{r, cache=TRUE}
+train_pca <- predict(training_pc, select(training, -classe))
+fit_pca <- train(training$classe ~ ., method="rf", 
+                 data = train_pca,
+                 nTree = 100)
+```
+
+This model uses the same number of trees, and the out of sample error rate only increases by 2% to 2.83%. 
+```{r}
+fit_pca$finalModel
+```
+
+Finally, lets see how the PCA model does with 100 trees, instead of 500.
+```{r, cache=TRUE}
+fit_pca_100 <- train(training$classe ~ ., method="rf", 
+                 data = train_pca,
+                 nTree = 100)
+```  
+
+This final model is much faster than the original model, and retains most of the predictive power. The predicted out of sample error rate is 2.92%.
+```{r}
+fit_pca_100$finalModel
+```
+
+## Cross Validation
+
+Use the most accurate model to make predictions.
+```{r}
+cv <- predict(fit, select(testing, -classe))
+confusionMatrix(testing$classe, cv)
+```
+The out of sample error rate is slightly higher (as predicted), but not dramatically so. This means overfitting is not a major concern for our model, and it will be used to make the final predictions for the project.  
+
+Compare to fastest model.
+```{r}
+testing_pca <- predict(training_pc, select(testing, -classe))
+cv_fast <- predict(fit_pca_100, testing_pca)
+confusionMatrix(testing$classe, cv_fast)
+```
+The better, slower model is only moderately better in the cross-validation set (99.18% accuracy *vs* 97.31% accuracy)
+
+## Out of Sample Error
+
+Use the testing data set to measure success of best model.
+```{r}
+file_test <- "../Data/pml-testing.csv"
+test_wel <- read.csv(file_test, 
+                     stringsAsFactors = FALSE,
+                     na.strings = c("", "NA", "#DIV/0!"))
+
+# remove irrelevant columns
+test_wel <- test_wel[-1:-7]
+
+# use the same predictors for test set
+testing_f <- test_wel[proportion_na < 0.97]
+
+# predictions
+predicted <- predict(fit, testing_f)
+```
+
+Make predictions for project.
+```{r, eval=FALSE}
+# coerce to character vector
+answers = as.character(predicted)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+setwd("../Answers")
+pml_write_files(answers)
+```

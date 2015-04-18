@@ -1,0 +1,94 @@
+---
+title: "Human Activity Recognition ML Project Report"
+author: "Keith G. Williams"
+date: "Friday, April 17, 2015"
+output: html_document
+---
+
+## Executive Summary
+A random forest model is used to predict whether a subject is executing a weight lifting exercise correctly. If not, the specific error is predicted. The predicted out of sample accuracy for the best model is less than 99.18%.
+
+## Load Data
+
+The data come from  
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises.](http://groupware.les.inf.puc-rio.br/har) Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.  
+These data were collected with body movement sensors while subjects were asked to do weight lifting exercises correctly (Class A) and with 4 common mistakes (Class B, C, D, and E).  
+
+```{r, message=FALSE}
+library(caret)
+library(randomForest)
+library(dplyr)
+
+file_train <- "../Data/pml-training.csv"
+data_wel <- read.csv(file_train, 
+                     stringsAsFactors = FALSE,
+                     na.strings = c("", "NA", "#DIV/0!"))
+
+# convert classe to factor
+data_wel$classe <- factor(data_wel$classe)
+```  
+
+The first seven variables are related to identification and irrelevant time stamp data. Columns 8:158 represent movement measurements, and the 159th variable is the prediction: `classe`.
+
+```{r}
+# remove irrelevant columns
+data_wel <- data_wel[-1:-7]
+```
+
+## Data Partitioning
+
+```{r}
+set.seed(1201) # set seed for reproducibility
+inTrain <- createDataPartition(data_wel$classe, p=0.6, list=FALSE)
+training <- data_wel[inTrain,]
+testing <- data_wel[-inTrain,]
+```
+
+## Exploratory Data Analysis and Preprocessing
+
+It appears that many of the columns have mostly missing data.
+```{r}
+proportion_na <- sapply(seq_along(training), 
+                        function(i) mean(is.na(training[i])))
+mean(proportion_na > 0.97)
+```  
+In fact, two-thirds of the variables have more than 97% missing data. These features will likely not be useful for making predictions.  
+
+```{r}
+# remove features with > 97% NA
+training <- training[proportion_na < 0.97]
+testing <- testing[proportion_na < 0.97]
+```
+
+Taking a look at one of the remaining features, one can see that there is a difference in variance by classe, so a model is ready to be fitted.
+```{r}
+plot(training$roll_belt, col=training$classe, main="Feature Variance by Classe")
+```  
+
+## Model
+
+The model to be fit is a random forest with bootstrap resampling and 150 trees. Since the features are non-linear, classification trees will provide a better prediction. In addition, the bootstrap aggregation makes a good compromise between bias and reduced variance.
+
+```{r}
+set.seed(6022)
+fit <- randomForest(classe ~ ., data = training, ntree = 150)
+fit
+```  
+
+The predicted out of sample error rate is > 0.81%.  
+
+The random forest error doesn't get any better after around 100 trees, so even 150 trees is more than enough to get the best prediction from the given features.  
+```{r}
+plot(fit, main="Performance by Number of Trees")
+```
+
+## Cross Validation
+
+With a predicted out of sample accuracy greater than 99%, overfitting is a concern. The remaining 40% of the training data will be used to cross validate the model.
+
+```{r}
+cv <- predict(fit, select(testing, -classe))
+confusionMatrix(testing$classe, cv)
+```  
+
+The cross-validated model has an accuracy of $99.4\% \pm 0.2%$
