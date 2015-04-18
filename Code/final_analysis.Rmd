@@ -91,4 +91,4 @@ cv <- predict(fit, select(testing, -classe))
 confusionMatrix(testing$classe, cv)
 ```  
 
-The cross-validated model has an accuracy of $99.4\% \pm 0.2%$
+The cross-validated model has an accuracy of $99.4\% \pm 0.2\%$
